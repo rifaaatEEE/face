@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Face Registration</title>
+  
+  <!-- Load FaceAPI.js without defer -->
+  <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.1/dist/face-api.min.js"></script>
+  
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin: 20px;
+    }
+    video {
+      border: 2px solid black;
+      margin-top: 10px;
+    }
+    input,
+    button {
+      margin-top: 10px;
+      padding: 8px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Register Your Face</h2>
+  <video id="video" width="640" height="480" autoplay muted></video>
+  <br />
+  <input type="text" id="studentId" placeholder="Enter Student ID" />
+  <button onclick="captureFace()">Capture & Save</button>
+
+  <script>
+    // Supabase configuration
+    const SUPABASE_URL = "https://tgbpkywgajahjpvjmmtz.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRnYnBreXdnYWphaGpwdmptbXR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzg0NzczMzIsImV4cCI6MjA1NDA1MzMzMn0.HPBUJs8Ip0BqgEggbloThGp6NX0EQJEWeRa30fORhV0";
+
+    // Initialize FaceAPI
+    async function loadModels() {
+      try {
+        // Check if faceapi is properly loaded
+        if (!window.faceapi || !faceapi.nets) {
+          throw new Error('FaceAPI not loaded - check network connection');
+        }
+
+        // Load models with correct paths
+        await faceapi.nets.tinyFaceDetector.loadFromUri('./models/tiny_face_detector');
+        await faceapi.nets.faceLandmark68TinyNet.loadFromUri('./models/face_landmark_68_tiny');
+        await faceapi.nets.faceRecognitionNet.loadFromUri('./models/face_recognition');
+        
+        console.log('All models loaded successfully');
+      } catch (err) {
+        console.error('Model loading failed:', err);
+        alert('Model loading failed: ' + err.message);
+      }
+    }
+
+    // Camera setup
+    async function setupCamera() {
+      try {
+        const video = document.getElementById('video');
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { 
+            facingMode: 'user',
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          } 
+        });
+        video.srcObject = stream;
+        await new Promise((resolve) => {
+          video.onloadedmetadata = () => resolve();
+        });
+        video.play();
+        return video;
+      } catch (err) {
+        console.error('Camera error:', err);
+        alert('Camera access denied! Please enable camera permissions.');
+        throw err;
+      }
+    }
+
+    // Face capture handler
+    async function captureFace() {
+      try {
+        const studentId = document.getElementById('studentId').value.trim();
+        if (!studentId) {
+          alert('Please enter a valid Student ID');
+          return;
+        }
+
+        const video = document.getElementById('video');
+        const detection = await faceapi.detectSingleFace(
+          video,
+          new faceapi.TinyFaceDetectorOptions()
+        ).withFaceLandmarks(true).withFaceDescriptor();
+
+        if (!detection) {
+          alert('No face detected. Please position your face in the frame.');
+          return;
+        }
+
+        // Convert Float32Array to regular array
+        const faceEmbedding = Array.from(detection.descriptor);
+
+        // Send to Supabase
+        const response = await fetch(`${SUPABASE_URL}/rest/v1/faces`, {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal'
+          },
+          body: JSON.stringify({
+            student_id: studentId,
+            face_embedding: faceEmbedding
+          })
+        });
+
+        if (!response.ok) throw new Error('Supabase save failed');
+        alert('Face data saved successfully!');
+      } catch (err) {
+        console.error('Capture error:', err);
+        alert('Error: ' + err.message);
+      }
+    }
+
+    // Main initialization
+    async function initializeApp() {
+      try {
+        await faceapi.tf.setBackend('webgl');
+        await faceapi.tf.ready();
+        await loadModels();
+        await setupCamera();
+        console.log('Application initialized');
+      } catch (err) {
+        console.error('Initialization failed:', err);
+        alert('Initialization failed: ' + err.message);
+      }
+    }
+
+    // Start the app when document loads
+    document.addEventListener('DOMContentLoaded', initializeApp);
+  </script>
+</body>
+</html>
